@@ -13,7 +13,7 @@
     "vscode": "^1.95.0"
   },
   "categories": ["AI", "Chat", "Education"],
-  "activationEvents": [],
+  "activationEvents": ["workspaceContains:**/*.java"],
   "main": "./out/extension.js",
   "contributes": {
     "chatParticipants": [
@@ -31,6 +31,10 @@
           {
             "name": "check",
             "description": "HINTS.md のヒントに合格できているかチェックする"
+          },
+          {
+            "name": "status",
+            "description": "残りのヒントと合格の状況を見る"
           },
           {
             "name": "hint",
@@ -58,11 +62,45 @@
         "command": "javaTutor.openHints",
         "title": "java-tutor: HINTS.md を開く",
         "category": "java-tutor"
+      },
+      {
+        "command": "javaTutor.menu",
+        "title": "java-tutor: メニューを開く",
+        "category": "java-tutor"
+      },
+      {
+        "command": "javaTutor.setLevel",
+        "title": "java-tutor: レベルを変える",
+        "category": "java-tutor"
+      },
+      {
+        "command": "javaTutor.chat",
+        "title": "java-tutor: チャットに送る",
+        "category": "java-tutor"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "javaTutor.chat",
+          "when": "false"
+        }
+      ]
+    },
     "configuration": {
       "title": "java-tutor",
       "properties": {
+        "javaTutor.level": {
+          "type": "string",
+          "enum": ["初学者", "中級", "上級"],
+          "enumDescriptions": [
+            "継承の誤用・カプセル化・命名など基本を中心に、問い・手順・骨組みまで丁寧に",
+            "基本に加えて、抽象クラスとインターフェース、final、重複コード、例外の扱いなども見る",
+            "設計原則・依存の向き・テストのしやすさなどを中心に、指摘と問いで簡潔に"
+          ],
+          "default": "初学者",
+          "description": "レビューのレベル。チャットのボタンやステータスバーのメニューからも変えられます。課題のリポジトリの .vscode/settings.json に書いておくと、開いた人全員に適用されます。"
+        },
         "javaTutor.theme": {
           "type": "string",
           "default": "",

@@ -62,6 +62,25 @@ export function extractInputs(md: string): { hint: number; input: string }[] {
   return found;
 }
 
+/** HINTS.md に記録されたレベル（「レベル：中級」の行）。合格チェックはこのレベルで判定する */
+export function recordedLevel(md: string): string | undefined {
+  return /^レベル[：:]\s*(\S+)/m.exec(md)?.[1];
+}
+
+/** 結果の表で、合格・取り下げ以外の行の数。表が読めなければ undefined */
+export function countRemaining(md: string): number | undefined {
+  const table = extractResultTable(md);
+  if (!table) {
+    return undefined;
+  }
+  const rows = table
+    .split(/\r?\n/)
+    .filter((l) => l.trim().startsWith("|"))
+    .slice(2); // 見出し行と区切り行
+  const verdict = (row: string) => (row.split("|").filter((c) => c.trim()).pop() ?? "").trim();
+  return rows.filter((l) => !/^(合格|取り下げ)/.test(verdict(l))).length;
+}
+
 /** チャットに出す要約。「合格チェックの結果」の表だけを抜く */
 export function extractResultTable(md: string): string | undefined {
   const m = /## 合格チェックの結果\s*\n([\s\S]*?)(?=\n## )/.exec(md);

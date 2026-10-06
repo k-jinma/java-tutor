@@ -9,7 +9,8 @@ README.md は Marketplace の紹介ページとしてそのまま表示される
 | `src/prompt.ts` | チューターへの指示文。レビューの観点、HINTS.md の形式、モードごとの仕事 |
 | `src/extension.ts` | チャット参加者 `@java-tutor` とコマンドの登録、モードごとの流れ |
 | `src/project.ts` | .java の収集、一時フォルダへのコンパイル、確認用入力を流した実行 |
-| `src/hints.ts` | HINTS.md の読み書き、確認用入力・結果表・ヒントの節の抽出 |
+| `src/hints.ts` | HINTS.md の読み書き、確認用入力・結果表・ヒントの節・レベル・残り数の抽出 |
+| `src/ui.ts` | `@java-tutor` だけのときの使い方とボタン、`/status`、ステータスバーとメニュー、レベルの切り替え |
 | `claude-skill/java-tutor/` | 同じルールの Claude Code スキル版 |
 
 ## Claude Code スキル版との関係
@@ -34,6 +35,15 @@ cp -r claude-skill/java-tutor ~/.claude/skills/
   - 優先順位（バグ → 設計の根っこ → テーマ → そのほか）を明記し、厚く書くヒントの見本を1つ入れた（ルールを足す代わりに見本で厚さを伝える）。見本は別ドメイン（図書館）にして、中身を写さないよう断っている。
   - 上位モデルを選んだときとの比較はまだ。モデルを変えても取りこぼすなら、「問題点の一覧 → HINTS.md」の2段階にすることを検討する。
 
+- **2026-10-06 `/check` が届かない**：`@java-tutor` を付けずに `/check` だけを送ったため Copilot のエージェント（Agent モード）が受け取り、学生のコードを書き換えた。使い方の画面とステータスバーのメニューからボタンで `@java-tutor` 付きで送る形にし、README にも注意を書いた。
+
+## 学生向けの入口
+
+- `@java-tutor` だけを送る → 使い方、レベルのボタン、レビュー・合格チェック・残りを見る・質問するのボタン（`ui.ts` の `renderHelp`）
+- 応答のあと → 状況に合わせたフォローアップ（`extension.ts` の `followupProvider`。`ChatResult.metadata` の残り数で出し分ける）
+- ステータスバー「🎓 java-tutor 残りN」→ メニュー（`showMenu`）。HINTS.md の変更を監視して数を更新する
+- ボタンは内部コマンド `javaTutor.chat` から `workbench.action.chat.open` に `@java-tutor 〜` を渡して送る。質問だけは送らずに入力欄に置く（`isPartialQuery`）
+
 ## 開発の手順
 
 ```bash
@@ -57,6 +67,8 @@ VS Code でこのフォルダを開き、F5 を押すと拡張開発ホストが
 - 拡張開発ホストで `@java-tutor` が候補に出るか
 - `/review` `/check` `/hint` `/new` の一連の流れ（Copilot のモデルで HINTS.md の書式が守られるか）
 - コマンドパレットからの `javaTutor.review` / `javaTutor.check`
+- 使い方の画面のボタン、フォローアップ、ステータスバーとメニュー、レベルの切り替え（Ask と Agent の両モードで、ボタンから `@java-tutor` 付きで送られるか）
+- 「はじめに」のページ（Walkthrough）は未実装
 - Windows 以外での javac の @引数ファイルの扱い
 
 ## Marketplace への公開

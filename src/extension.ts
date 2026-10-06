@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
-import { buildPrompt, Mode } from "./prompt";
+import { buildPrompt, Mode, Level, LEVELS, isLevel } from "./prompt";
+import { renderHelp, renderStatus, setLevel, showMenu, sendToTutor, settingLevel, createStatusBar } from "./ui";
 import {
   collectSources,
   renderSources,
@@ -18,8 +19,20 @@ import {
   extractInputs,
   extractResultTable,
   hintSection,
+  recordedLevel,
+  countRemaining,
   HINTS_FILE,
 } from "./hints";
+
+/** 応答のあとに出す「次の一手」のボタンを決めるための情報 */
+interface TutorResult extends vscode.ChatResult {
+  metadata?: { mode?: Mode | "help"; hasHints?: boolean; remaining?: number };
+}
+
+/** /review 上級 のように、コマンドのあとに書かれたレベル */
+function levelInText(text: string): Level | undefined {
+  return LEVELS.find((l) => text.includes(l));
+}
 
 /** チャットとコマンドパレットの両方から使う出力先 */
 interface Out {
@@ -138,7 +151,7 @@ async function run(
   out: Out,
   token: vscode.CancellationToken,
   userText = ""
-): Promise<void> {
+): Promise<number | undefined> {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) {
     out.markdown("Java プロジェクトのフォルダを開いてから呼んでください。");
@@ -148,6 +161,18 @@ async function run(
   const maxHints = cfg.get<number>("maxHints", 9);
   const theme = cfg.get<string>("theme", "");
   const hints = await readHints(folder);
+
+  // レベル：レビューは「コマンドのあとの指定 → 設定」。合格チェックと質問は HINTS.md に記録したレベルで続ける
+  const recorded = hints ? recordedLevel(hints) : undefined;
+  const level: Level =
+    mode === "review" || mode === "new"
+      ? (levelInText(userText) ?? settingLevel())
+      : isLevel(recorded)
+        ? recorded
+        : settingLevel();
+  if (mode === "review" || mode === "new") {
+    userText = userText.replace(level, "");
+  }
 
   // モードと HINTS.md の有無が合わないときは、上書きや空振りをせずに案内する
   if (mode === "review" && hints) {
@@ -206,7 +231,7 @@ async function run(
 
   out.progress(mode === "hint" ? "考えています…" : "ヒントを書いています…");
   const messages = [
-    vscode.LanguageModelChatMessage.User(buildPrompt(mode, { date: today(), maxHints, theme, hint: hintNo })),
+    vscode.LanguageModelChatMessage.User(buildPrompt(mode, { date: today(), maxHints, theme, level, hint: hintNo })),
     vscode.LanguageModelChatMessage.User(`# ソース（行頭の数字は行番号）\n\n${sources}`),
     vscode.LanguageModelChatMessage.User(`# コンパイル・実行の結果\n\n${facts.join("\n\n")}`),
   ];
@@ -236,26 +261,33 @@ async function run(
   }
   const uri = await writeHints(folder, answer);
   const table = extractResultTable(answer);
+  const remaining = countRemaining(answer);
   out.markdown(
-    (mode === "check" ? "合格チェックの結果です。\n\n" : `${HINTS_FILE} にヒントを書きました。\n\n`) +
+    (mode === "check" ? "合格チェックの結果です。\n\n" : `${HINTS_FILE} にヒントを書きました（レベル：${level}）。\n\n`) +
       (table ? `${table}\n\n` : "") +
-      "直したら `@java-tutor /check` で合格チェックできます。"
+      (remaining === 0 ? "全部のヒントに合格しました。" : "直したら「合格チェック」で確かめられます。")
   );
   out.done(uri);
+  return remaining;
 }
 
 export function activate(context: vscode.ExtensionContext) {
-  const handler: vscode.ChatRequestHandler = async (request, _ctx, stream, token) => {
+  const refreshStatusBar = createStatusBar(context);
+
+  const handler = async (
+    request: vscode.ChatRequest,
+    _ctx: vscode.ChatContext,
+    stream: vscode.ChatResponseStream,
+    token: vscode.CancellationToken
+  ): Promise<TutorResult> => {
     const mode = request.command as Mode | undefined;
     if (!mode) {
-      stream.markdown(
-        "java-tutor は、開いている Java プロジェクト全体をレビューして、答えではなくヒントを `HINTS.md` に書きます。\n\n" +
-          "- `/review` … 最初のレビュー\n" +
-          "- `/check` … 直したあとの合格チェック\n" +
-          "- `/hint 3 〜` … ヒント3について質問する（答えのコードは出しません）\n" +
-          "- `/new` … 今のコードに合わせてヒントを出し直す"
-      );
-      return {};
+      await renderHelp(stream);
+      return { metadata: { mode: "help" } };
+    }
+    if (mode === "status") {
+      const remaining = await renderStatus(stream);
+      return { metadata: { mode, hasHints: remaining !== undefined, remaining } };
     }
     const out: Out = {
       progress: (m) => stream.progress(m),
@@ -266,7 +298,8 @@ export function activate(context: vscode.ExtensionContext) {
       },
     };
     try {
-      await run(mode, request.model, out, token, request.prompt);
+      const remaining = await run(mode, request.model, out, token, request.prompt);
+      return { metadata: { mode, hasHints: true, remaining } };
     } catch (err) {
       if (err instanceof vscode.LanguageModelError) {
         stream.markdown(
@@ -275,15 +308,28 @@ export function activate(context: vscode.ExtensionContext) {
         return {};
       }
       throw err;
+    } finally {
+      void refreshStatusBar();
     }
-    return {};
   };
 
   const tutor = vscode.chat.createChatParticipant("javaTutor.tutor", handler);
   tutor.iconPath = new vscode.ThemeIcon("mortar-board");
+  // 応答のあとに、その状況で次にやることだけをボタンで出す
   tutor.followupProvider = {
-    provideFollowups() {
-      return [{ prompt: "", command: "check", label: "直したので合格チェック" }];
+    provideFollowups(result: TutorResult) {
+      const m = result.metadata;
+      if (!m?.mode || m.mode === "help" || !m.hasHints) {
+        return [];
+      }
+      if (m.remaining === 0) {
+        return [{ prompt: "", command: "new", label: "今のコードで新規レビュー（次の段階へ）" }];
+      }
+      const followups: vscode.ChatFollowup[] = [{ prompt: "", command: "check", label: "直したので合格チェック" }];
+      if (m.mode !== "status") {
+        followups.push({ prompt: "", command: "status", label: "残りを見る" });
+      }
+      return followups;
     },
   };
   context.subscriptions.push(tutor);
@@ -323,6 +369,9 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand("javaTutor.review", fromPalette("review")),
     vscode.commands.registerCommand("javaTutor.check", fromPalette("check")),
+    vscode.commands.registerCommand("javaTutor.menu", showMenu),
+    vscode.commands.registerCommand("javaTutor.setLevel", (level?: string) => setLevel(level)),
+    vscode.commands.registerCommand("javaTutor.chat", (query: string, partial?: boolean) => sendToTutor(query, partial)),
     vscode.commands.registerCommand("javaTutor.openHints", async () => {
       const folder = vscode.workspace.workspaceFolders?.[0];
       if (!folder) {

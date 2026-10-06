@@ -8,7 +8,33 @@
  * - 指示文は学生を三人称で書くので、言い回しが出力に漏れないよう先頭で止めておく。
  */
 
-export type Mode = "review" | "check" | "new" | "hint";
+export type Mode = "review" | "check" | "new" | "hint" | "status";
+
+export const LEVELS = ["初学者", "中級", "上級"] as const;
+export type Level = (typeof LEVELS)[number];
+
+export function isLevel(s: string | undefined): s is Level {
+  return !!s && (LEVELS as readonly string[]).includes(s);
+}
+
+/**
+ * レベルで変えるのは「見る観点の範囲」と「ヒントの厚さ・口調」だけ。
+ * 流れ（レビュー → 合格チェック）と HINTS.md の形式は共通にしている。
+ */
+const LEVEL_NOTES: Record<Level, string> = {
+  初学者: `
+# 学習者のレベル：初学者
+- 観点1〜7を見る。
+- ヒントは問い・手順・骨組みまで丁寧に書く。できているところは具体的に認める。`,
+  中級: `
+# 学習者のレベル：中級
+- 観点1〜7に加えて、次も見る：抽象クラスとインターフェースの使い分け、変わらないフィールドの final、実装クラス（ArrayList など）での変数宣言、ほぼ同じ処理のコピー、例外を catch して何もしない・Exception でまとめて受ける、null を返す・受け取る設計。
+- 骨組みのコードは要所だけにし、手順は短くする。口調はやわらかいまま、見本より簡潔に。`,
+  上級: `
+# 学習者のレベル：上級
+- 観点1〜7は明らかな問題だけに絞り、次を中心に見る：設計原則（単一責任・開放閉鎖・依存性逆転など）、依存の向きと結合度、テストのしやすさ（内部での new の決め打ち、static への依存）、例外の設計、ジェネリクスや不変オブジェクトの活用、デザインパターンが自然に当てはまる箇所（無理に当てはめない）。
+- ヒントは指摘と問いを中心に簡潔に書く。骨組みのコードは必要なときだけ。手順は1〜3ステップ。です・ます で簡潔に。`,
+};
 
 const COMMON = `
 あなたは Java の初学者を教えるチューターです。学生が手で書いた Java プロジェクトを読み、答えを渡さずに、学生が自分の手で直すきっかけを渡します。
@@ -27,6 +53,7 @@ const COMMON = `
 3. 責務とクラス分け：1クラスに複数の種類の仕事、情報を持つべきクラスが別にある、現実の概念に対応するクラスが欠けている、同じ情報が2か所にある
 4. カプセル化：可変リストをそのまま返して外で add/remove、public フィールド、同じチェックの散らばり
 5. 入出力とロジックの分離：計算や状態変更のメソッドの中の System.out、Scanner(System.in) が複数ある
+   Java の基本：インスタンスごとに持つべき値やオブジェクトを static にしている、オーバーライドのつもりの @Override の付け忘れ（引数の違いでオーバーロードになっている）、コンストラクタの同じ初期化の重複（this(...) で呼べる）や引数の値のチェックがない、文字列を == で比べている
 6. 値の表し方：enum にすべき int/String、配列の添字の暗黙の約束、不正な値で中途半端に作られるオブジェクト、意味が逆に読める boolean
 7. 命名とパッケージ：
    - 中身がわからない名前（n、d、a、temp、data、flag など。ループの i、j は問題にしない）
@@ -40,6 +67,7 @@ const COMMON = `
 
 # クラス設計の見直しヒント
 最終チェック：日付（初回レビュー／合格チェック n回目／新規レビュー）
+レベル：（今回のレベル。合格チェックでもこの行は変えない）
 ## 合格チェックの結果
   ヒント番号・内容（10文字程度）・判定（合格／もう少し／未着手／取り下げ）の表。初回は全部「未着手」。
 ## 今回の進み具合
@@ -175,7 +203,7 @@ ${target}、チャットで質問が来ています。HINTS.md と今のソー�
 
 export function buildPrompt(
   mode: Mode,
-  opts: { date: string; maxHints: number; theme: string; hint?: number }
+  opts: { date: string; maxHints: number; theme: string; level: Level; hint?: number }
 ): string {
   const task =
     mode === "review"
@@ -185,5 +213,5 @@ export function buildPrompt(
         : mode === "new"
           ? newTask(opts.maxHints, opts.theme)
           : hintTask(opts.hint);
-  return `${COMMON}\n今日の日付：${opts.date}\n${task}`;
+  return `${COMMON}\n${LEVEL_NOTES[opts.level]}\n\n今日の日付：${opts.date}\n${task}`;
 }
