@@ -34,11 +34,11 @@ function today(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-/** Copilot のモデルを取得する。見つからなければ GitHub サインインへ誘導する（dogo-tutor と同じ） */
-async function pickModel(): Promise<vscode.LanguageModelChat | undefined> {
-  let [model] = await vscode.lm.selectChatModels({ vendor: "copilot" });
-  if (model) {
-    return model;
+/** Copilot のモデル一覧。無ければ GitHub サインインへ誘導して取り直す（dogo-tutor と同じ） */
+async function copilotModels(): Promise<vscode.LanguageModelChat[]> {
+  let models = await vscode.lm.selectChatModels({ vendor: "copilot" });
+  if (models.length) {
+    return models;
   }
   const signIn = "GitHub にサインイン";
   const choice = await vscode.window.showErrorMessage(
@@ -46,18 +46,45 @@ async function pickModel(): Promise<vscode.LanguageModelChat | undefined> {
     signIn
   );
   if (choice !== signIn) {
-    return;
+    return [];
   }
   try {
     await vscode.authentication.getSession("github", [], { createIfNone: true });
   } catch {
+    return [];
+  }
+  for (let i = 0; i < 10 && !models.length; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    models = await vscode.lm.selectChatModels({ vendor: "copilot" });
+  }
+  return models;
+}
+
+/**
+ * コマンドパレットから呼んだときのモデル。レビューの質はモデルで大きく変わるので、
+ * 「一覧の最初のもの」に任せず、設定 javaTutor.model で決める。未設定なら選んでもらって保存する。
+ * チャットから呼んだときは、チャット欄で選ばれているモデルを使う。
+ */
+async function pickModel(): Promise<vscode.LanguageModelChat | undefined> {
+  const models = await copilotModels();
+  if (!models.length) {
     return;
   }
-  for (let i = 0; i < 10 && !model; i++) {
-    await new Promise((r) => setTimeout(r, 1000));
-    [model] = await vscode.lm.selectChatModels({ vendor: "copilot" });
+  const cfg = vscode.workspace.getConfiguration("javaTutor");
+  const wanted = cfg.get<string>("model", "");
+  const hit = wanted && models.find((m) => m.family === wanted || m.id === wanted || m.name === wanted);
+  if (hit) {
+    return hit;
   }
-  return model;
+  const pick = await vscode.window.showQuickPick(
+    models.map((m) => ({ label: m.name, description: m.family, model: m })),
+    { placeHolder: "java-tutor で使うモデルを選んでください（設定 javaTutor.model に保存します）" }
+  );
+  if (!pick) {
+    return;
+  }
+  await cfg.update("model", pick.model.family, vscode.ConfigurationTarget.Global);
+  return pick.model;
 }
 
 async function ask(

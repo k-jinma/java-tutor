@@ -75,6 +75,11 @@
           "maximum": 15,
           "description": "一度に出す（未合格で抱える）ヒントの最大数。"
         },
+        "javaTutor.model": {
+          "type": "string",
+          "default": "",
+          "description": "コマンドパレットから呼んだときに使うモデル（family 名。例: claude-sonnet-4.5）。空なら初回に一覧から選んで保存します。チャットから呼んだときは、チャット欄で選んでいるモデルを使います。"
+        },
         "javaTutor.javaHome": {
           "type": "string",
           "default": "",
