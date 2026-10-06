@@ -66,9 +66,9 @@ export async function renderHelp(stream: vscode.ChatResponseStream): Promise<voi
   }
 
   stream.markdown(
-    "\n\n> 自分で入力するときは、毎回先頭に `@java-tutor` を付けてください。" +
-      "付けないと Copilot が答え、コードを書き換えてしまうことがあります。" +
-      "チャットのモードは「Ask」にしておくと安心です。"
+    "\n\n> できるだけ上のボタンを使ってください。自分で入力するときは、毎回先頭に `@java-tutor` を付けます。" +
+      "付けないと Copilot が答え、あなたのコードを書き換えてしまうことがあります。" +
+      "もし書き換えられたら、チャットに出る変更の一覧で「元に戻す」を押して、自分の手で直してください。"
   );
 }
 
