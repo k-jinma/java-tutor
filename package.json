@@ -1,0 +1,105 @@
+{
+  "name": "java-tutor",
+  "displayName": "java-tutor",
+  "description": "Java プロジェクト全体をレビューし、答えではなくヒントを HINTS.md に出す学習用チューター。直したあとの合格チェックもできます。A Java tutor that reviews your whole project and gives hints, not answers — then checks whether your fixes pass.",
+  "version": "0.0.1",
+  "publisher": "k-jinma",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/k-jinma/java-tutor.git"
+  },
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": ["AI", "Chat", "Education"],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "chatParticipants": [
+      {
+        "id": "javaTutor.tutor",
+        "name": "java-tutor",
+        "fullName": "java-tutor",
+        "description": "Java プロジェクトをレビューしてヒントを出します。答えは出しません。",
+        "isSticky": true,
+        "commands": [
+          {
+            "name": "review",
+            "description": "プロジェクト全体をレビューして HINTS.md を作る"
+          },
+          {
+            "name": "check",
+            "description": "HINTS.md のヒントに合格できているかチェックする"
+          },
+          {
+            "name": "hint",
+            "description": "行き詰まったヒントを1段だけ詳しくする（例: /hint 3）"
+          },
+          {
+            "name": "new",
+            "description": "今のコードに合わせてヒントを出し直す（履歴は残す）"
+          }
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "javaTutor.review",
+        "title": "java-tutor: プロジェクトをレビューしてヒントを出す",
+        "category": "java-tutor"
+      },
+      {
+        "command": "javaTutor.check",
+        "title": "java-tutor: 合格チェック",
+        "category": "java-tutor"
+      },
+      {
+        "command": "javaTutor.openHints",
+        "title": "java-tutor: HINTS.md を開く",
+        "category": "java-tutor"
+      }
+    ],
+    "configuration": {
+      "title": "java-tutor",
+      "properties": {
+        "javaTutor.theme": {
+          "type": "string",
+          "default": "",
+          "description": "今回の学習テーマ。関係する指摘を優先します。例: 継承とポリモーフィズム"
+        },
+        "javaTutor.maxHints": {
+          "type": "number",
+          "default": 9,
+          "minimum": 3,
+          "maximum": 15,
+          "description": "一度に出す（未合格で抱える）ヒントの最大数。"
+        },
+        "javaTutor.javaHome": {
+          "type": "string",
+          "default": "",
+          "description": "JDK のフォルダ。空なら PATH 上の javac / java を使います。"
+        },
+        "javaTutor.runTimeoutSeconds": {
+          "type": "number",
+          "default": 10,
+          "minimum": 2,
+          "maximum": 60,
+          "description": "合格チェックで確認用の入力を流してプログラムを実行するときの制限時間（秒）。"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.x",
+    "@types/vscode": "^1.95.0",
+    "typescript": "^5.6.0",
+    "@vscode/vsce": "^3.2.0"
+  }
+}
