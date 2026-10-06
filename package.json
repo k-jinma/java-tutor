@@ -34,7 +34,7 @@
           },
           {
             "name": "hint",
-            "description": "行き詰まったヒントを1段だけ詳しくする（例: /hint 3）"
+            "description": "ヒントについて質問する（例: /hint 3 どこで状態を変えればいい？）"
           },
           {
             "name": "new",

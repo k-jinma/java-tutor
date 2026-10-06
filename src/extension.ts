@@ -8,6 +8,7 @@ import {
   runWithInput,
   cleanup,
   MAX_SOURCE_CHARS,
+  SourceFile,
 } from "./project";
 import {
   readHints,
@@ -17,8 +18,6 @@ import {
   extractInputs,
   extractResultTable,
   hintSection,
-  currentLevel,
-  appendToHint,
   HINTS_FILE,
 } from "./hints";
 
@@ -64,14 +63,46 @@ async function pickModel(): Promise<vscode.LanguageModelChat | undefined> {
 async function ask(
   model: vscode.LanguageModelChat,
   messages: vscode.LanguageModelChatMessage[],
-  token: vscode.CancellationToken
+  token: vscode.CancellationToken,
+  onFragment?: (s: string) => void
 ): Promise<string> {
   const res = await model.sendRequest(messages, {}, token);
   let text = "";
   for await (const f of res.text) {
     text += f;
+    onFragment?.(f);
   }
   return text;
+}
+
+/**
+ * コンパイルし、合格チェックではバグのヒントに残した確認用の入力を流して実行する。
+ * 結果はモデルに渡す事実として文章で返す。
+ */
+async function buildAndRun(files: SourceFile[], hintsForRun: string | undefined, out: Out): Promise<string[]> {
+  out.progress("コンパイルしています…");
+  const build = await compile(files);
+  const facts: string[] = [];
+  try {
+    if (!build.javacFound) {
+      facts.push("javac が見つからないため、コンパイルと実行は確認していません。");
+    } else if (!build.ok) {
+      facts.push(`コンパイルに失敗しました。\n\`\`\`\n${build.output}\n\`\`\``);
+    } else {
+      facts.push("コンパイルは成功しました。" + (build.output ? `\n警告:\n${build.output}` : ""));
+      const mainClass = findMainClass(files);
+      if (hintsForRun && mainClass) {
+        for (const { hint, input } of extractInputs(hintsForRun)) {
+          out.progress(`ヒント${hint}の確認用の入力で実行しています…`);
+          const output = await runWithInput(build.outDir, mainClass, input);
+          facts.push(`ヒント${hint}の確認用の入力で ${mainClass} を実行した出力:\n\`\`\`\n${output}\n\`\`\``);
+        }
+      }
+    }
+  } finally {
+    await cleanup(build.outDir);
+  }
+  return facts;
 }
 
 async function run(
@@ -104,20 +135,22 @@ async function run(
     return;
   }
 
-  let hintNo = 0;
-  let nextLevel = 0;
+  // /hint 3 〜 の先頭の数字はヒント番号。番号なしの質問も受け付ける
+  let hintNo: number | undefined;
   if (mode === "hint") {
-    hintNo = Number(/\d+/.exec(userText)?.[0] ?? 0);
-    const section = hintNo ? hintSection(hints!, hintNo) : undefined;
-    if (!section) {
-      out.markdown("どのヒントか番号で教えてください。例: `/hint 3`");
-      return;
+    const m = /^\s*(\d+)\s*/.exec(userText);
+    if (m) {
+      hintNo = Number(m[1]);
+      userText = userText.slice(m[0].length);
+      if (!hintSection(hints!, hintNo)) {
+        out.markdown(`${HINTS_FILE} にヒント${hintNo}が見つかりませんでした。番号を確かめてください。`);
+        return;
+      }
     }
-    nextLevel = currentLevel(section) + 1;
-    if (nextLevel > 3) {
+    if (!userText.trim()) {
       out.markdown(
-        `ヒント${hintNo}は、もう一番詳しい段階まで出しています。` +
-          `そこまで書いたコードを見せてもらえれば、合格チェック（\`/check\`）でどこが残っているかを伝えます。`
+        "どこで困っているかを、番号のあとに書いてください。\n\n" +
+          "例: `/hint 3 enum を作ったけど、どこで状態を変えればいいかわからない`"
       );
       return;
     }
@@ -138,35 +171,15 @@ async function run(
     return;
   }
 
-  out.progress("コンパイルしています…");
-  const build = await compile(files);
-  const facts: string[] = [];
-  try {
-    if (!build.javacFound) {
-      facts.push("javac が見つからないため、コンパイルと実行は確認していません。");
-    } else if (!build.ok) {
-      facts.push(`コンパイルに失敗しました。\n\`\`\`\n${build.output}\n\`\`\``);
-    } else {
-      facts.push("コンパイルは成功しました。" + (build.output ? `\n警告:\n${build.output}` : ""));
-      // 合格チェックでは、バグのヒントに残した確認用の入力を流して症状が消えたかを見る
-      const mainClass = findMainClass(files);
-      if (mode === "check" && mainClass) {
-        for (const { hint, input } of extractInputs(hints!)) {
-          out.progress(`ヒント${hint}の確認用の入力で実行しています…`);
-          const output = await runWithInput(build.outDir, mainClass, input);
-          facts.push(`ヒント${hint}の確認用の入力で ${mainClass} を実行した出力:\n\`\`\`\n${output}\n\`\`\``);
-        }
-      }
-    }
-  } finally {
-    await cleanup(build.outDir);
-  }
+  // 質問への回答はソースを見れば足りる。待たせないようコンパイルは省く
+  const facts =
+    mode === "hint"
+      ? ["（質問への回答のため、コンパイルと実行はしていません）"]
+      : await buildAndRun(files, mode === "check" ? hints : undefined, out);
 
-  out.progress(mode === "hint" ? `ヒント${hintNo}を考えています…` : "ヒントを書いています…");
+  out.progress(mode === "hint" ? "考えています…" : "ヒントを書いています…");
   const messages = [
-    vscode.LanguageModelChatMessage.User(
-      buildPrompt(mode, { date: today(), maxHints, theme, hint: hintNo, nextLevel })
-    ),
+    vscode.LanguageModelChatMessage.User(buildPrompt(mode, { date: today(), maxHints, theme, hint: hintNo })),
     vscode.LanguageModelChatMessage.User(`# ソース（行頭の数字は行番号）\n\n${sources}`),
     vscode.LanguageModelChatMessage.User(`# コンパイル・実行の結果\n\n${facts.join("\n\n")}`),
   ];
@@ -174,19 +187,18 @@ async function run(
     messages.push(vscode.LanguageModelChatMessage.User(`# 今の ${HINTS_FILE}\n\n${hints}`));
   }
   if (userText.trim()) {
-    messages.push(vscode.LanguageModelChatMessage.User(`# 学生からのひとこと\n\n${userText}`));
+    const label = mode === "hint" ? "# 質問" : "# 学生からのひとこと";
+    messages.push(vscode.LanguageModelChatMessage.User(`${label}\n\n${userText}`));
+  }
+
+  // 質問への回答はチャットに流すだけで、HINTS.md は書き換えない
+  if (mode === "hint") {
+    await ask(model, messages, token, (f) => out.markdown(f));
+    return;
   }
 
   const answer = stripFence(await ask(model, messages, token));
   if (token.isCancellationRequested) {
-    return;
-  }
-
-  if (mode === "hint") {
-    const addition = `${answer}\n\n<!-- level: ${nextLevel} -->`;
-    const uri = await writeHints(folder, appendToHint(hints!, hintNo, addition));
-    out.markdown(`ヒント${hintNo}に、もう一段詳しいヒント（レベル${nextLevel}/3）を書き足しました。`);
-    out.done(uri);
     return;
   }
 
@@ -213,7 +225,7 @@ export function activate(context: vscode.ExtensionContext) {
         "java-tutor は、開いている Java プロジェクト全体をレビューして、答えではなくヒントを `HINTS.md` に書きます。\n\n" +
           "- `/review` … 最初のレビュー\n" +
           "- `/check` … 直したあとの合格チェック\n" +
-          "- `/hint 3` … ヒント3を1段だけ詳しく\n" +
+          "- `/hint 3 〜` … ヒント3について質問する（答えのコードは出しません）\n" +
           "- `/new` … 今のコードに合わせてヒントを出し直す"
       );
       return {};

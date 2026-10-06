@@ -60,7 +60,7 @@ const COMMON = `
   </details>
 - 構造に関わるヒントは Mermaid の classDiagram で「今」と「直したあと」を別々の図にして並べる。直したあとの図は骨組みの範囲まで。
 - **考えてみてほしいこと**：答えに気づける問いを2〜5個（現実のたとえ、声に出して読むテスト、「変更が入ったら何か所直す？」が効く）
-- **手を動かすきっかけ**：最初の一歩と、TODO 入りの骨組みのコード
+- **手を動かすきっかけ**：直す手順を日本語で2〜4ステップ（どのファイルのどこから手を付けるか、どの順に進めるか）と、TODO 入りの骨組みのコード。手順は「何をするか」まで書き、「どう書くか」は骨組みの TODO に残す
 - **できたかチェック**：- [ ] の形で。あとで合格判定の基準になるので、コードを読むか実行すれば判定できる項目だけを書く。「理解した」のような判定できない項目は書かない。
 `;
 
@@ -108,24 +108,22 @@ function newTask(maxHints: number, theme: string): string {
 `;
 }
 
-function hintTask(n: number, nextLevel: number): string {
-  const levels: Record<number, string> = {
-    1: "問いをもう一段具体的にする。見るべきファイルと行を指す。",
-    2: "骨組みを一段詳しくする。メソッドの中の手順を、日本語のコメントで書く（コードは書かない）。",
-    3: "いちばん難しい1か所だけをコードで示す。それ以外は TODO のまま残す。",
-  };
+function hintTask(n: number | undefined): string {
+  const target = n ? `HINTS.md のヒント${n}について` : "HINTS.md のヒントや自分のコードについて";
   return `
-# 今回の仕事：段階的ヒント
-ヒント${n}で行き詰まっています。開示をレベル${nextLevel}まで1段だけ進めてください。
-レベル${nextLevel}：${levels[nextLevel]}
-- 出力は、そのヒントの末尾に追記する Markdown だけ。見出しは「**もう少しヒント（レベル${nextLevel}）**」で始める。前置きを付けない。
-- 学生がチャットで書いた「どこで困っているか」があれば、それに合わせる。
+# 今回の仕事：質問に答える
+${target}、チャットで質問が来ています。HINTS.md と今のソースを見て、質問に答えてください。
+- 答えは質問にまっすぐ返す。2〜6文程度で短く。見出しやチェックリストは付けない。
+- 今のコードのどこを見ればよいかを「ファイル名:行番号」で指す。
+- 答えのコードは書かない。必要なら API や書き方を一般形で示す（例：\`list.remove(index)\`）。目の前のコードを「何行目をこう書き換える」とは言わない。そこが学生の考えるところ。
+- 学生の考えが合っていれば、合っていると短く伝える。ずれていれば、どこがずれているかを問いで返す。
+- 質問がヒントと関係ない場合も、答えのコードを書かない範囲で答えてよい。
 `;
 }
 
 export function buildPrompt(
   mode: Mode,
-  opts: { date: string; maxHints: number; theme: string; hint?: number; nextLevel?: number }
+  opts: { date: string; maxHints: number; theme: string; hint?: number }
 ): string {
   const task =
     mode === "review"
@@ -134,6 +132,6 @@ export function buildPrompt(
         ? checkTask(opts.maxHints)
         : mode === "new"
           ? newTask(opts.maxHints, opts.theme)
-          : hintTask(opts.hint ?? 1, opts.nextLevel ?? 1);
+          : hintTask(opts.hint);
   return `${COMMON}\n今日の日付：${opts.date}\n${task}`;
 }

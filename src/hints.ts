@@ -67,20 +67,3 @@ export function extractResultTable(md: string): string | undefined {
   const m = /## 合格チェックの結果\s*\n([\s\S]*?)(?=\n## )/.exec(md);
   return m?.[1].trim();
 }
-
-/** 段階的ヒントをどこまで出したか。<!-- level: 2 --> の最大値 */
-export function currentLevel(section: string): number {
-  const levels = [...section.matchAll(/<!-- level: (\d) -->/g)].map((m) => Number(m[1]));
-  return levels.length ? Math.max(...levels) : 0;
-}
-
-/** ヒント n の節の末尾に追記する */
-export function appendToHint(md: string, n: number, addition: string): string {
-  const s = hintSections(md).find((x) => x.number === n);
-  if (!s) {
-    return md;
-  }
-  const before = md.slice(0, s.end).trimEnd();
-  const after = md.slice(s.end);
-  return `${before}\n\n${addition.trim()}\n\n${after}`;
-}
